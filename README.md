@@ -24,8 +24,10 @@ pip install pyinstaller
 ### Сборка
 
 ```bash
-pyinstaller --noconfirm --windowed --onefile --icon=icon.ico RaspisanieCOD.py | xcopy /E /I /Y /Q /C tmp dist\\tmp\\
+pyinstaller --noconfirm --windowed --onefile --icon=icon.ico RaspisanieCOD.py; xcopy /E /I /Y /Q /C tmp dist\\tmp\\; cp icon.ico dist/icon.ico
 ```
+
+
 
 * `--noconfirm` — не задавать вопросов в процессе
 * `--windowed` — скрыть консольное окно (для GUI)
