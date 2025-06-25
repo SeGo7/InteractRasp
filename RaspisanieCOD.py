@@ -416,7 +416,7 @@ class ScheduleApp(QWidget):
         for cls, lessons in self.current_data.items():
             for lesson in lessons:
                 if lesson.get('кабинет', False):
-                    busy_rooms_by_lesson[lesson['урок']].add(lesson['кабинет'])
+                    busy_rooms_by_lesson[lesson['урок']].add(lesson['кабинет'].replace("_", ""))
 
         for col, room in enumerate(all_rooms):
             header = QLabel(str(room))
