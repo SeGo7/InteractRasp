@@ -1,12 +1,14 @@
 import sys
-from backend import update_data, get_raspisanie
-from datetime import datetime
+from backend import update_data, get_rasp
+from datetime import date, datetime
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
     QStackedWidget, QScrollArea, QGridLayout, QComboBox
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QPixmap
+
+from config import all_rooms
 
 DAYS = ["ПОНЕДЕЛЬНИК", "ВТОРНИК", "СРЕДА", "ЧЕТВЕРГ", "ПЯТНИЦА", "СУББОТА"]
 
@@ -16,44 +18,54 @@ class ScheduleApp(QWidget):
         super().__init__()
 
         update_data()
-        self.TIME_LAST_CHECK = datetime.now()
-        self.ALL_RASPISANIE = get_raspisanie(file_name='all.csv')
-        self.DAY_RAPISANIE = get_raspisanie(file_name='day.csv')
 
-        self.current_data = None
-        self.current_day_index = 0
+        self.TIME_LAST_CHECK = datetime.now()
+        self.DAY_RAPISANIE, self.ALL_RASPISANIE = get_rasp()
+
+        self.current_day_index = date.today().weekday() % len(DAYS)
+        self.current_data = self.get_raspisanie_changes()
+        self.name_classes = sorted(self.current_data)
         self.setWindowTitle("Расписание")
         self.showFullScreen()
 
         self.stack = QStackedWidget()
         self.menu_page = QWidget()
+        self.add_corner_icon(self.menu_page)
         self.schedule_page = QWidget()
+        self.add_corner_icon(self.schedule_page)
         self.teacher_schedule_page = QWidget()
+        self.add_corner_icon(self.teacher_schedule_page)
 
         self.create_menu_page()
         self.create_schedule_page()
         self.create_teacher_schedule_page()
+        self.create_free_rooms_page()
 
         self.stack.addWidget(self.menu_page)
         self.stack.addWidget(self.schedule_page)
         self.stack.addWidget(self.teacher_schedule_page)
+        self.stack.addWidget(self.free_rooms_page)
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.stack)
+
+    def get_raspisanie_changes(self):
+        return self.DAY_RAPISANIE.get(DAYS[self.current_day_index], self.ALL_RASPISANIE[DAYS[self.current_day_index]])
+
+    def get_raspisanie_const(self):
+        return self.ALL_RASPISANIE[DAYS[self.current_day_index]]
 
     def check_update_rasp(self):
         if (datetime.now() - self.TIME_LAST_CHECK).seconds > 3600 or datetime.now().day > self.TIME_LAST_CHECK.day:
             self.TIME_LAST_CHECK = datetime.now()
             update_data()
-            self.ALL_RASPISANIE = get_raspisanie(file_name='all.csv')
-            self.DAY_RAPISANIE = get_raspisanie(file_name='day.csv')
+            self.DAY_RAPISANIE, self.ALL_RASPISANIE = get_rasp()
             self.create_menu_page()
 
     def create_menu_page(self):
         layout = QVBoxLayout()
-        today_day_name = DAYS[datetime.today().weekday()] if datetime.today().weekday() < 6 else DAYS[(datetime.today().weekday()) % 6]
 
-        self.current_data = self.DAY_RAPISANIE.get(DAYS[self.current_day_index], self.ALL_RASPISANIE[DAYS[self.current_day_index]])
+        self.current_data = self.get_raspisanie_changes()
 
         header_layout = QHBoxLayout()
 
@@ -78,6 +90,11 @@ class ScheduleApp(QWidget):
         self.teacher_dropdown.setFont(QFont("Arial", 12))
         self.teacher_dropdown.currentTextChanged.connect(self.show_teacher_schedule_from_menu)
         header_layout.addWidget(self.teacher_dropdown)
+
+        self.classes_dropdown = QComboBox()
+        self.classes_dropdown.setFont(QFont("Arial", 12))
+        self.classes_dropdown.currentTextChanged.connect(self.show_class_schedule_from_menu)
+        header_layout.addWidget(self.classes_dropdown)
 
         layout.addLayout(header_layout)
 
@@ -106,15 +123,16 @@ class ScheduleApp(QWidget):
 
             for col, cls in enumerate(class_names):
                 lessons = all_lessons.get((row + 1, cls), [])
-                if not lessons:
+                if not lessons or (len(lessons) == 1 and {'урок': row + 1, 'отличается' : True} in lessons):
                     content = "—"
                 else:
                     content = "\n---\n".join(
-                        f"{l['предмет']} ({l['кабинет']})\n{l['учитель']}" for l in lessons)
+                        f"{l['предмет']} {f'({l['кабинет']})' if l['кабинет'] else ''}\n{l['учитель']}" for l in lessons)
                 cell = QLabel(content)
                 cell.setStyleSheet(
-                    "background-color: white; color: black; padding: 3px; border: 1px solid gray; border-radius: 5px; font-size: 8pt;")
+                    f"background-color: {'yellow' if any(l.get('отличается', False) for l in lessons) else 'white'}; color: black; padding: 3px; border: 1px solid gray; border-radius: 5px; font-size: 8pt;")
                 cell.setWordWrap(True)
+                cell.setFixedWidth(140)
                 grid.addWidget(cell, row + 1, col + 1)
 
         self.menu_container.setLayout(grid)
@@ -122,21 +140,16 @@ class ScheduleApp(QWidget):
         self.menu_scroll.setWidget(self.menu_container)
         self.menu_scroll.setWidgetResizable(True)
 
-
-        buttons_layout = QHBoxLayout()
-        for cls in sorted(self.current_data):
-            btn = QPushButton(f"{cls}")
-            btn.setFont(QFont("Arial", 14))
-            btn.clicked.connect(lambda _, c=cls: self.show_schedule(c))
-            buttons_layout.addWidget(btn)
-
         exit_btn = QPushButton("Выход")
         exit_btn.setFont(QFont("Arial", 14))
         exit_btn.clicked.connect(QApplication.quit)
 
-
         layout.addWidget(self.menu_scroll)
-        layout.addLayout(buttons_layout)
+        free_rooms_btn = QPushButton("Свободные кабинеты")
+        free_rooms_btn.setFont(QFont("Arial", 14))
+        free_rooms_btn.clicked.connect(self.show_free_rooms)
+        layout.addWidget(free_rooms_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+
         layout.addWidget(exit_btn, alignment=Qt.AlignmentFlag.AlignRight)
 
         self.menu_page.setLayout(layout)
@@ -146,11 +159,19 @@ class ScheduleApp(QWidget):
         self.teacher_dropdown.addItem("Выберите учителя")
         self.teacher_dropdown.addItems(sorted(self.TEACHER_RASP.keys()))
 
+        self.classes_dropdown.clear()
+        self.classes_dropdown.addItem("Выберите класс")
+        self.classes_dropdown.addItems(self.name_classes)
+
         # self.stack.setCurrentWidget(self.teacher_schedule_page)
 
     def show_teacher_schedule_from_menu(self, teacher):
         if teacher != "Выберите учителя":
             self.show_teacher_schedule(teacher)
+
+    def show_class_schedule_from_menu(self, name_class):
+        if name_class != "Выберите класс":
+            self.show_schedule(name_class)
 
     def create_schedule_page(self):
         self.schedule_layout = QVBoxLayout()
@@ -192,14 +213,15 @@ class ScheduleApp(QWidget):
 
         back_btn = QPushButton("Назад")
         back_btn.setFont(QFont("Arial", 12))
+        back_btn.setFixedSize(120, 40)
         back_btn.clicked.connect(lambda: self.stack.setCurrentWidget(self.menu_page))
 
         self.teacher_schedule_layout.addWidget(self.teacher_name_label)
         self.teacher_schedule_layout.addWidget(scroll)
-        self.teacher_schedule_layout.addWidget(back_btn)
+        self.teacher_schedule_layout.addWidget(back_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         self.teacher_schedule_page.setLayout(self.teacher_schedule_layout)
 
-    def show_schedule(self, class_name):
+    def show_schedule(self, class_name : str):
         self.class_label.setText(f"Расписание для {class_name}")
 
         for i in reversed(range(self.schedule_grid.count())):
@@ -293,12 +315,11 @@ class ScheduleApp(QWidget):
 
     def update_day_schedule(self):
         self.day_label.setText(DAYS[self.current_day_index])
-        self.current_data = self.DAY_RAPISANIE.get(DAYS[self.current_day_index], self.ALL_RASPISANIE[DAYS[self.current_day_index]])
         self.show_menu_page()
 
     def show_menu_page(self):
         self.day_label.setText(DAYS[self.current_day_index])
-        self.current_data = self.DAY_RAPISANIE.get(DAYS[self.current_day_index], self.ALL_RASPISANIE[DAYS[self.current_day_index]])
+        self.current_data = self.get_raspisanie_changes()
 
         container = self.menu_container
         layout = container.layout()
@@ -326,7 +347,7 @@ class ScheduleApp(QWidget):
             header.setFont(QFont("Arial", 12, QFont.Weight.Bold))
             header.setAlignment(Qt.AlignmentFlag.AlignCenter)
             header.setFixedWidth(140)
-        layout.addWidget(header, 0, col + 1)
+            layout.addWidget(header, 0, col + 1)
 
         for row in range(7):
             label = QLabel(f"{row + 1}")
@@ -335,19 +356,89 @@ class ScheduleApp(QWidget):
 
             for col, cls in enumerate(class_names):
                 lessons = all_lessons.get((row + 1, cls), [])
-                if not lessons:
+                if not lessons or (len(lessons) == 1 and {'урок': row + 1, 'отличается': True} in lessons):
                     content = "—"
                 else:
-                    content = "\n---\n".join(f"{l['предмет']} ({l['кабинет']})\n{l['учитель']}" for l in lessons)
+                    content = "\n---\n".join(
+                        f"{l['предмет']} {f'({l['кабинет']})' if l['кабинет'] else ''}\n{l['учитель']}" for l in
+                        lessons)
                 cell = QLabel(content)
                 cell.setStyleSheet(
-                    "background-color: white; color: black; padding: 3px; border: 1px solid gray; border-radius: 5px; font-size: 7  pt;")
+                    f"background-color: {'yellow' if any(l.get('отличается', False) for l in lessons) else 'white'}; color: black; padding: 3px; border: 1px solid gray; border-radius: 5px; font-size: 8pt;")
                 cell.setWordWrap(True)
                 cell.setFixedWidth(140)
                 layout.addWidget(cell, row + 1, col + 1)
 
         self.menu_container.update()
         self.stack.setCurrentWidget(self.menu_page)
+
+    def add_corner_icon(self, page):
+        icon = QLabel(page)
+        icon.setPixmap(QPixmap("icon.ico").scaled(40, 40, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        icon.setGeometry(page.width() - 620, 1090, 40, 40)
+        icon.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        icon.setStyleSheet("background: transparent;")
+        icon.raise_()
+
+    def create_free_rooms_page(self):
+        self.free_rooms_page = QWidget()
+        self.add_corner_icon(self.free_rooms_page)
+
+        self.free_rooms_layout = QVBoxLayout()
+        self.free_rooms_grid = QGridLayout()
+        scroll = QScrollArea()
+        container = QWidget()
+        container.setLayout(self.free_rooms_grid)
+        scroll.setWidget(container)
+        scroll.setWidgetResizable(True)
+
+        self.free_rooms_label = QLabel(f"Свободные кабинеты на {DAYS[self.current_day_index]}")
+        self.free_rooms_label.setFont(QFont("Arial", 20))
+        self.free_rooms_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        back_btn = QPushButton("Назад")
+        back_btn.setFont(QFont("Arial", 12))
+        back_btn.setFixedSize(120, 40)
+        back_btn.clicked.connect(self.back_to_menu)
+
+        self.free_rooms_layout.addWidget(self.free_rooms_label)
+        self.free_rooms_layout.addWidget(scroll)
+        self.free_rooms_layout.addWidget(back_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.free_rooms_page.setLayout(self.free_rooms_layout)
+
+    def show_free_rooms(self):
+        for i in reversed(range(self.free_rooms_grid.count())):
+            widget = self.free_rooms_grid.itemAt(i).widget()
+            if widget:
+                widget.deleteLater()
+
+        busy_rooms_by_lesson = {i: set() for i in range(1, 8)}
+        for cls, lessons in self.current_data.items():
+            for lesson in lessons:
+                if lesson.get('кабинет', False):
+                    busy_rooms_by_lesson[lesson['урок']].add(lesson['кабинет'])
+
+        for col, room in enumerate(all_rooms):
+            header = QLabel(str(room))
+            header.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+            header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.free_rooms_grid.addWidget(header, 0, col + 1)
+
+        for row in range(1, 8):
+            label = QLabel(f"Урок {row}")
+            label.setFont(QFont("Arial", 12))
+            self.free_rooms_grid.addWidget(label, row, 0)
+
+            for col, room in enumerate(all_rooms):
+                is_busy = str(room) in busy_rooms_by_lesson[row]
+                if not is_busy:
+                    cell = QLabel("Свободен")
+                    cell.setStyleSheet("background-color: #ccffcc; color: black; padding: 6px; border: 1px solid gray; border-radius: 5px;")
+                    cell.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                    self.free_rooms_grid.addWidget(cell, row, col + 1)
+
+        self.stack.setCurrentWidget(self.free_rooms_page)
+
 
     def back_to_menu(self):
         self.check_update_rasp()

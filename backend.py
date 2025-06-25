@@ -4,9 +4,57 @@ import socket
 
 import pandas as pd
 
+from copy import deepcopy
 from collections import defaultdict
 
 pattern_day = r'^(Понедельник|Вторник|Среда|Четверг|Пятница|Суббота)$'
+
+
+def lessons_equal(l1, l2):
+    return (
+            l1['предмет'].strip() == l2['предмет'].strip() and
+            l1['кабинет'].strip() == l2['кабинет'].strip() and
+            l1['учитель'].strip() == l2['учитель'].strip()
+    )
+
+
+def group_by_urok(lessons):
+    grouped = {}
+    for lesson in lessons:
+        num = lesson['урок']
+        grouped.setdefault(num, []).append(lesson)
+    return grouped
+
+
+def compare_raspisanie(base_rasp, new_rasp):
+    result = deepcopy(new_rasp)
+
+    for day, classes in result.items():
+        for class_name, lessons in classes.items():
+            base_lessons = base_rasp.get(day, {}).get(class_name, [])
+            base_by_urok = group_by_urok(base_lessons)
+            res_by_urok = group_by_urok(lessons)
+
+            for urok_num in range(1, 8):
+                new_entries = res_by_urok.get(urok_num, {})
+                base_entries = base_by_urok.get(urok_num, [])
+
+                if len(new_entries) == 0 and len(base_entries) > 0:
+                    lessons.append({'урок': urok_num, 'отличается' : True})
+                    continue
+                elif len(new_entries) > 0 and len(base_entries) == 0:
+                    for entry in new_entries.values():
+                        entry['отличается'] = True
+                    continue
+
+                for entry in new_entries:
+                    if not any(lessons_equal(entry, b) for b in base_entries):
+                        entry['отличается'] = True
+                    else:
+                        entry['отличается'] = False
+
+    return result
+
 
 
 def get_raspisanie(file_name="day.csv"):
@@ -76,7 +124,7 @@ def get_raspisanie(file_name="day.csv"):
                         lesson = {
                             "урок": lesson_number,
                             "предмет": subject,
-                            "кабинет": room,
+                            "кабинет": str(int(float(room))) if bool(re.fullmatch(r'[-+]?\d+(\.\d+)?', room)) else room,
                             "учитель": teacher
                         }
                         schedule[class_name].append(lesson)
@@ -86,6 +134,14 @@ def get_raspisanie(file_name="day.csv"):
         lesson_number += 1
 
     return all
+
+
+def get_rasp():
+    rasp_changes = get_raspisanie(file_name="day.csv")
+    rasp_const = get_raspisanie(file_name="all.csv")
+
+    return compare_raspisanie(rasp_const, rasp_changes), rasp_const
+
 
 def check_internet(host="8.8.8.8", port=53, timeout=3):
     try:
