@@ -57,8 +57,8 @@ class ScheduleApp(QWidget):
 
         header_layout = QHBoxLayout()
 
-        self.current_day_index = datetime.today().weekday() % len(DAYS)
-        self.day_label = QLabel(DAYS[self.current_day_index])
+        if not hasattr(self, 'day_label'):
+            self.day_label = QLabel(DAYS[self.current_day_index])
         self.day_label.setFont(QFont("Arial", 12))
         self.day_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -81,8 +81,8 @@ class ScheduleApp(QWidget):
 
         layout.addLayout(header_layout)
 
-        scroll = QScrollArea()
-        container = QWidget()
+        self.menu_scroll = QScrollArea()
+        self.menu_container = QWidget()
         grid = QGridLayout()
 
         all_lessons = {}
@@ -117,9 +117,10 @@ class ScheduleApp(QWidget):
                 cell.setWordWrap(True)
                 grid.addWidget(cell, row + 1, col + 1)
 
-        container.setLayout(grid)
-        scroll.setWidget(container)
-        scroll.setWidgetResizable(True)
+        self.menu_container.setLayout(grid)
+        self.menu_container.update()
+        self.menu_scroll.setWidget(self.menu_container)
+        self.menu_scroll.setWidgetResizable(True)
 
 
         buttons_layout = QHBoxLayout()
@@ -134,7 +135,7 @@ class ScheduleApp(QWidget):
         exit_btn.clicked.connect(QApplication.quit)
 
 
-        layout.addWidget(scroll)
+        layout.addWidget(self.menu_scroll)
         layout.addLayout(buttons_layout)
         layout.addWidget(exit_btn, alignment=Qt.AlignmentFlag.AlignRight)
 
@@ -299,13 +300,18 @@ class ScheduleApp(QWidget):
         self.day_label.setText(DAYS[self.current_day_index])
         self.current_data = self.DAY_RAPISANIE.get(DAYS[self.current_day_index], self.ALL_RASPISANIE[DAYS[self.current_day_index]])
 
-        scroll = self.menu_page.findChild(QScrollArea)
-        if scroll is None:
-            return
-        container = scroll.widget()
+        container = self.menu_container
         layout = container.layout()
 
-        grid = QGridLayout()
+        if layout is None:
+            layout = QGridLayout()
+            container.setLayout(layout)
+        else:
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget:
+                    widget.deleteLater()
 
         all_lessons = {}
         for cls, lessons in self.current_data.items():
@@ -319,26 +325,28 @@ class ScheduleApp(QWidget):
             header = QLabel(cls)
             header.setFont(QFont("Arial", 12, QFont.Weight.Bold))
             header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            grid.addWidget(header, 0, col + 1)
+            header.setFixedWidth(140)
+        layout.addWidget(header, 0, col + 1)
 
         for row in range(7):
             label = QLabel(f"{row + 1}")
             label.setFont(QFont("Arial", 12))
-            grid.addWidget(label, row + 1, 0)
+            layout.addWidget(label, row + 1, 0)
 
             for col, cls in enumerate(class_names):
                 lessons = all_lessons.get((row + 1, cls), [])
                 if not lessons:
                     content = "—"
                 else:
-                    content = "---".join(f"{l['предмет']} ({l['кабинет']}){l['учитель']}" for l in lessons)
+                    content = "\n---\n".join(f"{l['предмет']} ({l['кабинет']})\n{l['учитель']}" for l in lessons)
                 cell = QLabel(content)
                 cell.setStyleSheet(
-                    "background-color: white; color: black; padding: 3px; border: 1px solid gray; border-radius: 5px; font-size: 8pt;")
+                    "background-color: white; color: black; padding: 3px; border: 1px solid gray; border-radius: 5px; font-size: 7  pt;")
                 cell.setWordWrap(True)
-                grid.addWidget(cell, row + 1, col + 1)
+                cell.setFixedWidth(140)
+                layout.addWidget(cell, row + 1, col + 1)
 
-        container.setLayout(grid)
+        self.menu_container.update()
         self.stack.setCurrentWidget(self.menu_page)
 
     def back_to_menu(self):
